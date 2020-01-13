@@ -1,0 +1,9 @@
+message: Publish ${SHA} - ${DATE
+files:
+  - build/*
+  - README.md
+targets:
+  production:
+    branch: gh-pages
+    repo: <org>/<name>
+    url: custom.example.com
