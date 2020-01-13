@@ -18,6 +18,7 @@ type PublisherConfig struct {
 	CommitMessage string                      `yaml:"message"`
 	ExcludedFiles []string                    `yaml:"exclude"`
 	Files         []string                    `yaml:"files"`
+	PreRunScript  string                      `yaml:"preRun"`
 	Targets       map[string]DeploymentTarget `yaml:"targets"`
 }
 

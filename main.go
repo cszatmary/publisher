@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cszatma/publisher/config"
@@ -106,6 +107,15 @@ func main() {
 		err = os.RemoveAll(filepath.Join(targetRepoPath, f.Name()))
 		if err != nil {
 			fatal.ExitErrf(err, "failed to remove %s", f.Name())
+		}
+	}
+
+	if conf.PreRunScript != "" {
+		fmt.Println("Executing preRun script...")
+		args := strings.Split(conf.PreRunScript, " ")
+		err = util.Exec(args[0], srcRootPath, args[1:]...)
+		if err != nil {
+			fatal.ExitErr(err, "Failed to execute preRun script")
 		}
 	}
 
