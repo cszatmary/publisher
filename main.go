@@ -17,6 +17,7 @@ import (
 
 var (
 	configPath string
+	skipPreRun bool
 	tag        string
 	targetName string
 	verbose    bool
@@ -24,6 +25,7 @@ var (
 
 func parseFlags() {
 	flag.StringVarP(&configPath, "path", "p", "publisher.yml", "The path to the publisher.yml config file.")
+	flag.BoolVar(&skipPreRun, "skip-prerun", false, "Skip preRun step.")
 	flag.StringVarP(&tag, "tag", "t", "", "The git tag to create. Omit if you do not want to create a tag.")
 	flag.StringVarP(&targetName, "target", "T", "", "The target to deploy.")
 	flag.BoolVarP(&verbose, "verbose", "v", false, "Enables verbose logging.")
@@ -110,7 +112,7 @@ func main() {
 		}
 	}
 
-	if conf.PreRunScript != "" {
+	if !skipPreRun && conf.PreRunScript != "" {
 		fmt.Println("Executing preRun script...")
 		args := strings.Split(conf.PreRunScript, " ")
 		err = util.Exec(args[0], srcRootPath, args[1:]...)
@@ -135,7 +137,15 @@ func main() {
 		util.VerbosePrintf("Copying %s...\n", file)
 
 		srcPath := filepath.Join(srcRootPath, file)
-		destPath := filepath.Join(targetRepoPath, file)
+		var destFile string
+		components := strings.Split(file, "/")
+		if len(components) == 1 {
+			destFile = file
+		} else {
+			destFile = filepath.Join(components[1:]...)
+		}
+
+		destPath := filepath.Join(targetRepoPath, destFile)
 		err = util.Copy(srcPath, destPath)
 		if err != nil {
 			fatal.ExitErrf(err, "failed to copy %s to %s", srcPath, destPath)
