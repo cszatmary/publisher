@@ -1,8 +1,8 @@
 package config
 
 import (
-	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/cszatma/publisher/util"
 	"github.com/pkg/errors"
@@ -35,11 +35,11 @@ func PublisherDir() string {
 }
 
 func ReposDir() string {
-	return fmt.Sprintf("%s/repos", publisherDir)
+	return filepath.Join(publisherDir, "repos")
 }
 
 func Init(configPath string, vars map[string]string) (*PublisherConfig, error) {
-	publisherDir = fmt.Sprintf("%s/.publisher", os.Getenv("HOME"))
+	publisherDir = filepath.Join(os.Getenv("HOME"), ".publisher")
 
 	if !util.FileOrDirExists(publisherDir) {
 		err := os.Mkdir(publisherDir, 0755)
