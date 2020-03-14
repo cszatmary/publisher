@@ -74,7 +74,7 @@ func main() {
 	targetRepoPath := filepath.Join(config.ReposDir(), target.GithubRepo)
 	var repo *git.Repository
 	if !util.FileOrDirExists(targetRepoPath) {
-		util.VerbosePrintf("Target repo %s does not exist, cloning...\n")
+		util.VerbosePrintf("Target repo %s does not exist, cloning...\n", target.GithubRepo)
 
 		repo, err = git.Clone(target.GithubRepo, target.Branch, targetRepoPath)
 		if err != nil {
