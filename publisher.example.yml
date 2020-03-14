@@ -1,4 +1,4 @@
-message: Publish ${SHA} - ${DATE
+message: Publish ${SHA} - ${DATE}
 files:
   - build/*
   - README.md
