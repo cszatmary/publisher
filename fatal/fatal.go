@@ -11,34 +11,38 @@ func ShowStackTraces(show bool) {
 	showStackTraces = show
 }
 
-func ExitErr(err error, message string) {
-	fmt.Fprintf(os.Stderr, message+"\n")
+func printErr(err error) {
+	if err == nil {
+		return
+	}
 
 	if showStackTraces {
 		fmt.Fprintf(os.Stderr, "Error: %+v\n", err)
+		return
 	}
 
+	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+}
+
+func ExitErr(err error, message string) {
+	fmt.Fprintln(os.Stderr, message)
+
+	printErr(err)
 	os.Exit(1)
 }
 
 func ExitErrf(err error, format string, a ...interface{}) {
 	fmt.Fprintf(os.Stderr, format, a...)
-	fmt.Println()
+	fmt.Fprintln(os.Stderr)
 
-	if showStackTraces {
-		fmt.Fprintf(os.Stderr, "Error: %+v\n", err)
-	}
-
+	printErr(err)
 	os.Exit(1)
 }
 
 func Exit(message string) {
-	fmt.Fprintf(os.Stderr, message+"\n")
-	os.Exit(1)
+	ExitErr(nil, message)
 }
 
 func Exitf(format string, a ...interface{}) {
-	fmt.Fprintf(os.Stderr, format, a...)
-
-	os.Exit(1)
+	ExitErrf(nil, format, a...)
 }

@@ -27,14 +27,6 @@ var (
 	publisherDir string
 )
 
-func Config() *PublisherConfig {
-	return &config
-}
-
-func PublisherDir() string {
-	return publisherDir
-}
-
 func ReposDir() string {
 	return filepath.Join(publisherDir, "repos")
 }

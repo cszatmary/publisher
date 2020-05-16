@@ -12,6 +12,7 @@ import (
 	"github.com/cszatma/publisher/fatal"
 	"github.com/cszatma/publisher/git"
 	"github.com/cszatma/publisher/util"
+	log "github.com/sirupsen/logrus"
 	flag "github.com/spf13/pflag"
 )
 
@@ -40,7 +41,17 @@ func parseFlags() {
 func main() {
 	parseFlags()
 
-	util.SetVerboseMode(verbose)
+	var logLevel log.Level
+	if verbose {
+		logLevel = log.DebugLevel
+	} else {
+		logLevel = log.InfoLevel
+	}
+
+	log.SetLevel(logLevel)
+	log.SetFormatter(&log.TextFormatter{
+		DisableTimestamp: true,
+	})
 	fatal.ShowStackTraces(verbose)
 
 	srcRootPath, err := git.RootDir()
@@ -59,7 +70,7 @@ func main() {
 		"DATE": time.Now().Local().Format("01-02-2006"),
 	}
 
-	util.VerbosePrintln("Reading publisher.yml config")
+	log.Debugln("Reading publisher.yml config")
 	conf, err := config.Init(configPath, vars)
 	if err != nil {
 		fatal.ExitErr(err, "Failed to read config file")
@@ -74,27 +85,27 @@ func main() {
 	targetRepoPath := filepath.Join(config.ReposDir(), target.GithubRepo)
 	var repo *git.Repository
 	if !util.FileOrDirExists(targetRepoPath) {
-		util.VerbosePrintf("Target repo %s does not exist, cloning...\n", target.GithubRepo)
+		log.Debugf("Target repo %s does not exist, cloning...\n", target.GithubRepo)
 
 		repo, err = git.Clone(target.GithubRepo, target.Branch, targetRepoPath)
 		if err != nil {
 			fatal.ExitErrf(err, "Failed to clone repo %s to %s", target.GithubRepo, targetRepoPath)
 		}
 
-		util.VerbosePrintf("Successfully cloned repo %s\n", target.GithubRepo)
+		log.Debugf("Successfully cloned repo %s\n", target.GithubRepo)
 	} else {
-		util.VerbosePrintf("Target repo %s exists, opening and setting up \n", target.GithubRepo)
+		log.Debugf("Target repo %s exists, opening and setting up \n", target.GithubRepo)
 
 		repo, err = git.Open(target.GithubRepo, target.Branch, targetRepoPath)
 		if err != nil {
 			fatal.ExitErrf(err, "Failed to open repo %s at path %s", target.GithubRepo, targetRepoPath)
 		}
 
-		util.VerbosePrintf("Successfully opened repo %s\n", target.GithubRepo)
+		log.Debugf("Successfully opened repo %s\n", target.GithubRepo)
 	}
 
 	// Empty target repo
-	util.VerbosePrintf("Emptying directory %s\n", targetRepoPath)
+	log.Debugf("Emptying directory %s\n", targetRepoPath)
 	dir, err := ioutil.ReadDir(targetRepoPath)
 	if err != nil {
 		fatal.ExitErr(err, "failed to read items in target dir")
@@ -134,7 +145,7 @@ func main() {
 	}
 
 	for _, file := range files {
-		util.VerbosePrintf("Copying %s...\n", file)
+		log.Debugf("Copying %s...\n", file)
 
 		srcPath := filepath.Join(srcRootPath, file)
 		var destFile string
@@ -161,13 +172,13 @@ func main() {
 	}
 
 	// Commit files
-	util.VerbosePrintln("Staging files...")
+	log.Debugln("Staging files...")
 	err = git.Add(target.GithubRepo, targetRepoPath, ".")
 	if err != nil {
 		fatal.ExitErrf(err, "Failed to stage files in target repo %s", targetRepoPath)
 	}
 
-	util.VerbosePrintln("Committing files...")
+	log.Debugln("Committing files...")
 	err = git.Commit(target.GithubRepo, conf.CommitMessage, repo)
 	if err != nil {
 		fatal.ExitErrf(err, "Failed to commit files in target repo %s", targetRepoPath)
