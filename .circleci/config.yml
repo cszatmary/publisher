@@ -1,0 +1,36 @@
+version: 2.1
+description: "lint-build-test workflow for publisher"
+
+jobs:
+  lint-build-test:
+    docker:
+      - image: cimg/go:1.15
+    steps:
+      - checkout
+      - restore_cache:
+          name: Restore dependency cache
+          keys:
+            - publisher-deps-20200830-{{ checksum "go.sum" }}
+      - run:
+          name: Install dependencies
+          command: make setup
+      - save_cache:
+          name: Cache dependencies
+          key: publisher-deps-20200830-{{ checksum "go.sum" }}
+          paths:
+            - ~/go/pkg
+            - bin/golangci-lint
+      - run:
+          name: Build app
+          command: make build
+      - run:
+          name: Run linter
+          command: make lint
+      - run:
+          name: Run tests
+          command: make test-ci
+
+workflows:
+  lint-build-test:
+    jobs:
+      - lint-build-test

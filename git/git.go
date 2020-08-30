@@ -101,7 +101,7 @@ func User() (name string, email string, err error) {
 }
 
 func Commit(name, msg string, repo *Repository) error {
-	name, email, err := User()
+	username, email, err := User()
 	if err != nil {
 		return errors.Wrap(err, "failed to get git user info")
 	}
@@ -113,7 +113,7 @@ func Commit(name, msg string, repo *Repository) error {
 
 	_, err = wt.Commit(msg, &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  name,
+			Name:  username,
 			Email: email,
 			When:  time.Now(),
 		},
