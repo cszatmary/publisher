@@ -1,7 +1,7 @@
 project_name: publisher
 before:
   hooks:
-    - go mod download
+    - go mod tidy
 builds:
   - env:
       - CGO_ENABLED=0
@@ -26,6 +26,6 @@ changelog:
       - '^test:'
 release:
   github:
-    owner: cszatma
+    owner: cszatmary
     name: publisher
   name_template: "v{{.Version}}"

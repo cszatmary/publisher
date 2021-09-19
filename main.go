@@ -1,194 +1,195 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/cszatma/publisher/config"
-	"github.com/cszatma/publisher/fatal"
-	"github.com/cszatma/publisher/git"
-	"github.com/cszatma/publisher/util"
-	log "github.com/sirupsen/logrus"
+	"github.com/cszatmary/publisher/internal/file"
+	"github.com/cszatmary/publisher/internal/git"
+	"github.com/cszatmary/publisher/internal/log"
+	"github.com/sc-lang/go-sc"
 	flag "github.com/spf13/pflag"
 )
 
-var (
-	configPath string
-	skipPreRun bool
-	tag        string
-	targetName string
-	verbose    bool
-)
+type config struct {
+	CommitMessage string                      `sc:"message"`
+	ExcludedFiles []string                    `sc:"exclude"`
+	Files         []string                    `sc:"files"`
+	PreRunScript  string                      `sc:"preRun"`
+	Targets       map[string]deploymentTarget `sc:"targets"`
+}
 
-func parseFlags() {
-	flag.StringVarP(&configPath, "path", "p", "publisher.yml", "The path to the publisher.yml config file.")
-	flag.BoolVar(&skipPreRun, "skip-prerun", false, "Skip preRun step.")
-	flag.StringVarP(&tag, "tag", "t", "", "The git tag to create. Omit if you do not want to create a tag.")
-	flag.StringVarP(&targetName, "target", "T", "", "The target to deploy.")
-	flag.BoolVarP(&verbose, "verbose", "v", false, "Enables verbose logging.")
-
-	flag.Parse()
-
-	if targetName == "" {
-		fatal.Exit("Must provider a target to deploy using the --target flag")
-	}
+type deploymentTarget struct {
+	Branch     string `sc:"branch"`
+	GithubRepo string `sc:"repo"`
+	CustomURL  string `sc:"url"`
 }
 
 func main() {
-	parseFlags()
+	if err := execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
 
-	var logLevel log.Level
-	if verbose {
-		logLevel = log.DebugLevel
-	} else {
-		logLevel = log.InfoLevel
+func execute() error {
+	flags := flag.NewFlagSet("publisher", flag.ExitOnError)
+	configPath := flags.String("path", "publisher.sc", "The path to the publisher.sc config file.")
+	skipPreRun := flags.Bool("skip-prerun", false, "Skip preRun step.")
+	tag := flags.String("tag", "", "The git tag to create. Omit if you do not want to create a tag.")
+	verbose := flags.BoolP("verbose", "v", false, "Enables verbose logging.")
+	flags.Usage = func() {
+		var sb strings.Builder
+		sb.WriteString(`publisher is a small CLI for publishing static sites to GitHub Pages.
+
+Usage:
+  publisher [target]
+
+Flags:
+`)
+		sb.WriteString(flags.FlagUsages())
+		fmt.Fprint(os.Stderr, sb.String())
 	}
 
-	log.SetLevel(logLevel)
-	log.SetFormatter(&log.TextFormatter{
-		DisableTimestamp: true,
-	})
-	fatal.ShowStackTraces(verbose)
+	// Ignore error because it is set to ExitOnError
+	_ = flags.Parse(os.Args[1:])
+	if flags.NArg() == 0 {
+		fmt.Fprint(os.Stderr, "Error: No target specified\n\n")
+		flags.Usage()
+		os.Exit(1)
+	}
+
+	targetName := flags.Arg(0)
+	logger := log.New(os.Stderr)
+	logger.SetDebug(*verbose)
+
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return fmt.Errorf("unable to get user's cache directory: %w", err)
+	}
+	reposDir := filepath.Join(cacheDir, "publisher", "repos")
+	if err := os.MkdirAll(reposDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create directory %q: %w", reposDir, err)
+	}
 
 	srcRootPath, err := git.RootDir()
 	if err != nil {
-		fatal.ExitErr(err, "Project is not a git repo")
+		return fmt.Errorf("failed to get root directory of git repo: %w", err)
 	}
-
 	sha, err := git.SHA("HEAD")
 	if err != nil {
-		fatal.ExitErr(err, "Failed to get SHA of HEAD for project")
+		return fmt.Errorf("failed to get SHA of HEAD for project: %w", err)
 	}
 
-	vars := map[string]string{
-		"SHA":  sha,
-		"TAG":  tag,
-		"DATE": time.Now().Local().Format("01-02-2006"),
+	logger.Debugf("Reading %s config", *configPath)
+	data, err := os.ReadFile(*configPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("config file not found at %q", *configPath)
 	}
-
-	log.Debugln("Reading publisher.yml config")
-	conf, err := config.Init(configPath, vars)
 	if err != nil {
-		fatal.ExitErr(err, "Failed to read config file")
+		return fmt.Errorf("failed to read %q: %w", *configPath, err)
+	}
+	vars := sc.MustVariables(map[string]string{
+		"SHA":  sha,
+		"TAG":  *tag,
+		"DATE": time.Now().Local().Format("01-02-2006"),
+	})
+	var conf config
+	err = sc.Unmarshal(data, &conf, sc.WithVariables(vars))
+	if err != nil {
+		return fmt.Errorf("failed to parse config file: %w", err)
 	}
 
 	target, ok := conf.Targets[targetName]
 	if !ok {
-		fatal.Exitf("%s is not a valid deployment target", targetName)
+		return fmt.Errorf("%s is not a valid deployment target", targetName)
 	}
 
 	// Setup target repo
-	targetRepoPath := filepath.Join(config.ReposDir(), target.GithubRepo)
-	var repo *git.Repository
-	if !util.FileOrDirExists(targetRepoPath) {
-		log.Debugf("Target repo %s does not exist, cloning...\n", target.GithubRepo)
-
-		repo, err = git.Clone(target.GithubRepo, target.Branch, targetRepoPath)
-		if err != nil {
-			fatal.ExitErrf(err, "Failed to clone repo %s to %s", target.GithubRepo, targetRepoPath)
-		}
-
-		log.Debugf("Successfully cloned repo %s\n", target.GithubRepo)
-	} else {
-		log.Debugf("Target repo %s exists, opening and setting up \n", target.GithubRepo)
-
-		repo, err = git.Open(target.GithubRepo, target.Branch, targetRepoPath)
-		if err != nil {
-			fatal.ExitErrf(err, "Failed to open repo %s at path %s", target.GithubRepo, targetRepoPath)
-		}
-
-		log.Debugf("Successfully opened repo %s\n", target.GithubRepo)
+	targetRepoPath := filepath.Join(reposDir, target.GithubRepo)
+	repo, err := git.Prepare(target.GithubRepo, targetRepoPath, target.Branch, logger)
+	if err != nil {
+		return fmt.Errorf("failed to prepare target git repo: %w", err)
 	}
 
 	// Empty target repo
-	log.Debugf("Emptying directory %s\n", targetRepoPath)
-	dir, err := ioutil.ReadDir(targetRepoPath)
+	logger.Debugf("Emptying directory %s", targetRepoPath)
+	contents, err := os.ReadDir(targetRepoPath)
 	if err != nil {
-		fatal.ExitErr(err, "failed to read items in target dir")
+		return fmt.Errorf("failed to read contents of directory %q: %w", targetRepoPath, err)
 	}
-
-	for _, f := range dir {
+	for _, item := range contents {
 		// Don't remove .git dir
-		if f.Name() == ".git" && f.IsDir() {
+		if item.Name() == ".git" && item.IsDir() {
 			continue
 		}
-
-		err = os.RemoveAll(filepath.Join(targetRepoPath, f.Name()))
-		if err != nil {
-			fatal.ExitErrf(err, "failed to remove %s", f.Name())
+		p := filepath.Join(targetRepoPath, item.Name())
+		if err := os.RemoveAll(p); err != nil {
+			return fmt.Errorf("failed to remove %q: %w", p, err)
 		}
 	}
 
-	if !skipPreRun && conf.PreRunScript != "" {
-		fmt.Println("Executing preRun script...")
+	if !*skipPreRun && conf.PreRunScript != "" {
+		logger.Printf("Executing preRun script...")
 		args := strings.Split(conf.PreRunScript, " ")
-		err = util.Exec(args[0], srcRootPath, args[1:]...)
-		if err != nil {
-			fatal.ExitErr(err, "Failed to execute preRun script")
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = srcRootPath
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to execute preRun script, stderr: %s, error: %w", stderr.String(), err)
 		}
 	}
 
 	// Copy files
-	fmt.Println("Copying files...")
+	logger.Printf("Copying files...")
 	var files []string
-	for _, file := range conf.Files {
-		matches, err := filepath.Glob(file)
+	for _, f := range conf.Files {
+		matches, err := filepath.Glob(f)
 		if err != nil {
-			fatal.ExitErr(err, "failed to parse files listed in config")
+			return fmt.Errorf("failed to parse files listed in config: %w", err)
 		}
-
 		files = append(files, matches...)
 	}
-
-	for _, file := range files {
-		log.Debugf("Copying %s...\n", file)
-
-		srcPath := filepath.Join(srcRootPath, file)
-		var destFile string
-		components := strings.Split(file, "/")
+	for _, f := range files {
+		logger.Debugf("Copying %s...", f)
+		srcPath := filepath.Join(srcRootPath, f)
+		var dstFile string
+		components := strings.Split(f, "/")
 		if len(components) == 1 {
-			destFile = file
+			dstFile = f
 		} else {
-			destFile = filepath.Join(components[1:]...)
+			dstFile = filepath.Join(components[1:]...)
 		}
 
-		destPath := filepath.Join(targetRepoPath, destFile)
-		err = util.Copy(srcPath, destPath)
-		if err != nil {
-			fatal.ExitErrf(err, "failed to copy %s to %s", srcPath, destPath)
+		dstPath := filepath.Join(targetRepoPath, dstFile)
+		if err := file.Copy(srcPath, dstPath); err != nil {
+			return fmt.Errorf("failed to copy %q to %q: %w", srcPath, dstFile, err)
 		}
 	}
 
 	if target.CustomURL != "" {
 		cnamePath := filepath.Join(targetRepoPath, "CNAME")
-		err = ioutil.WriteFile(cnamePath, []byte(target.CustomURL), 0644)
+		err := os.WriteFile(cnamePath, []byte(target.CustomURL), 0o644)
 		if err != nil {
-			fatal.ExitErrf(err, "Failed to write CNAME file to target repo %s", targetRepoPath)
+			return fmt.Errorf("failed to write CNAME file to target repo %s: %w", targetRepoPath, err)
 		}
 	}
 
-	// Commit files
-	log.Debugln("Staging files...")
-	err = git.Add(target.GithubRepo, targetRepoPath, ".")
-	if err != nil {
-		fatal.ExitErrf(err, "Failed to stage files in target repo %s", targetRepoPath)
+	logger.Debugf("Committing files...")
+	if err := repo.CommitChanges(conf.CommitMessage); err != nil {
+		return fmt.Errorf("failed to commit files in target repo %q: %w", targetRepoPath, err)
 	}
-
-	log.Debugln("Committing files...")
-	err = git.Commit(target.GithubRepo, conf.CommitMessage, repo)
-	if err != nil {
-		fatal.ExitErrf(err, "Failed to commit files in target repo %s", targetRepoPath)
+	logger.Printf("Pushing to branch %s in repo %s", target.Branch, target.GithubRepo)
+	if err := repo.Push(); err != nil {
+		return fmt.Errorf("failed to push changes to GitHub for target repo %q: %w", targetRepoPath, err)
 	}
-
-	fmt.Printf("Pushing to branch %s in repo %s\n", target.Branch, target.GithubRepo)
-	err = git.Push(target.GithubRepo, repo)
-	if err != nil {
-		fatal.ExitErrf(err, "Failed to push changes to GitHub for target repo %s", targetRepoPath)
-	}
-
-	fmt.Println("Successfully published to GitHub Pages! Enjoy!")
+	logger.Printf("Successfully published to GitHub Pages! Enjoy!")
+	return nil
 }

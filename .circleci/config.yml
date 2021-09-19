@@ -1,34 +1,48 @@
 version: 2.1
 description: "lint-build-test workflow for publisher"
 
+gomod_cache_key: &gomod_cache_key publisher-deps-20210523-{{ checksum "go.sum" }}
+shed_cache_key: &shed_cache_key publisher-tools-20210523-{{ checksum "shed.lock" }}
+
 jobs:
   lint-build-test:
     docker:
-      - image: cimg/go:1.15
+      - image: cszatmary/cimg-go:1.17
     steps:
       - checkout
       - restore_cache:
           name: Restore dependency cache
           keys:
-            - publisher-deps-20200830-{{ checksum "go.sum" }}
+            - *gomod_cache_key
+      - restore_cache:
+          name: Restore tool dependency cache
+          keys:
+            - *shed_cache_key
       - run:
           name: Install dependencies
           command: make setup
       - save_cache:
           name: Cache dependencies
-          key: publisher-deps-20200830-{{ checksum "go.sum" }}
+          key: *gomod_cache_key
           paths:
             - ~/go/pkg
-            - bin/golangci-lint
+      - save_cache:
+          name: Cache tool dependencies
+          key: *shed_cache_key
+          paths:
+            - ~/.cache/shed
       - run:
-          name: Build app
-          command: make build
+          name: Check files are formatted
+          command: make check-fmt
       - run:
           name: Run linter
           command: make lint
       - run:
+          name: Build app
+          command: make build
+      - run:
           name: Run tests
-          command: make test-ci
+          command: make test
 
 workflows:
   lint-build-test:
