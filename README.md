@@ -12,7 +12,7 @@ publisher -T <target>
 
 ```
 Usage of publisher:
-  -p, --path string     The path to the publisher.yml config file. (default "publisher.yml")
+  -p, --path string     The path to the publisher.sc config file. (default "publisher.sc")
       --skip-prerun     Skip preRun step.
   -t, --tag string      The git tag to create. Omit if you do not want to create a tag.
   -T, --target string   The target to deploy.
@@ -23,7 +23,7 @@ You can run `publisher -h` to view the help message.
 
 ## Configuration
 
-To configure publisher create a `publisher.yml` file. An example is available in [`publisher.example.yml`](publisher.example.yml).
+To configure publisher create a `publisher.sc` file. An example is available in [`publisher.example.sc`](publisher.example.sc).
 
 ### `message: string`
 
@@ -49,12 +49,14 @@ Publisher can be configured to publish to multiple GitHub repos in order to depl
 
 Example:
 
-```yml
-targets:
-  production:
-    branch: gh-pages
-    repo: Example/my-site
-    url: custom.example.com
+```sc
+targets: {
+  production: {
+    branch: "gh-pages"
+    repo: "Example/my-site"
+    url: "custom.example.com"
+  }
+}
 ```
 
 A target has the following fields:
